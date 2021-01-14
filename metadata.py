@@ -139,6 +139,8 @@ def func_pviot_hosp(df, cols, fact_name, cats, tags, version, df_standard, stand
 	# print(sql_query)
 	df_pivot = spark.sql(sql_query).na.fill("0").withColumn("VALUE", regexp_replace('VALUE', r'#N/A', '0'))
 	df_pivot = df_pivot.withColumn("DESCRIPTION", pudf_description_info(df_pivot.TAG))
+	df_pivot = df_pivot.withColumnRenamed("ID", "HOSP_ID")
+	df_pivot = df_pivot.withColumn("ID", pudf_id_generator(df_pivot.HOSP_ID))
 	
 	return df_pivot
 
