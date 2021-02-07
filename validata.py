@@ -12,7 +12,8 @@ from pyspark.sql.types import *
 from pyspark.sql.functions import col
 from pyspark.sql.functions import lit
 from pyspark.sql.functions import sum
-from pyspark.sql.functions import array
+from pyspark.sql.functions import array, array_distinct, array_union
+from pyspark.sql.functions import coalesce
 from pyspark.sql.types import *
 from pyspark.sql.functions import pandas_udf, PandasUDFType
 from pyspark.ml import PipelineModel
@@ -25,10 +26,10 @@ def prepare():
 	spark = SparkSession.builder \
 		.master("yarn") \
 		.appName("CPA&GYC match refactor") \
-		.config("spark.driver.memory", "2g") \
-		.config("spark.executor.cores", "4") \
-		.config("spark.executor.instances", "4") \
-		.config("spark.executor.memory", "2g") \
+		.config("spark.driver.memory", "1g") \
+		.config("spark.executor.cores", "1") \
+		.config("spark.executor.instances", "2") \
+		.config("spark.executor.memory", "1g") \
 		.config('spark.sql.codegen.wholeStage', False) \
 		.config("spark.sql.execution.arrow.pyspark.enable", "true") \
 		.getOrCreate()
@@ -65,31 +66,43 @@ def pudf_dosage_replace(sch, sen):
 	return df_result["RESULT"].values.tolist()
 
 
+@pandas_udf(ArrayType(StringType()), PandasUDFType.GROUPED_AGG)
+def pudf_dosage_mapping_agg(sch):
+	frame = {
+		"RESULT": sch,
+	}
+	df = pd.DataFrame(frame)
+	
+	df["RESULT"] = df["RESULT"].apply(lambda x: x)
+	
+	return df["RESULT"]
+
+
 if __name__ == '__main__':
 	spark = prepare()
 	
-# 	df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/runid_alfred_runner_test/cross_join_cutting/cross_result")
-	# df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/runid_alfred_runner_test/cleaning_data_normalization/cleaning_result")
-	# df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DOSAGE_MAPPING/CHC/V0.0.1")
-	# df.show()
-	# df = df.withColumn("DOSAGE", df.CHC_DOSAGE)
-	# df = df.groupBy("DOSAGE").agg(pudf_dosage_replace(df.MASTER_DOSAGE, df.EN_DOSAGE).alias("MASTER_DOSAGE"))
-	# df.repartition(1).write.mode("overwrite").parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DOSAGE_MAPPING/CHC/V0.0.2")
+	df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/manual__2021-02-06T13_53_23.413024+00_00/cleaning_data_model_predictions/negative_result")
+	# df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/manual__2021-02-06T13_53_23.413024+00_00/cleaning_data_model_predictions/positive_result")
 	
-	# df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DOSAGE_MAPPING/CPA/V0.0.1")
-	# # df.show()
+	df = df \
+			.where((df.label == 1) & (df.prediction == 0) & (df.EFFTIVENESS_DOSAGE < 0.8)) \
+			.distinct()
+			# .where((df.EFFTIVENESS_PACK_QTY == 0)) \
+			# .select("PACK_ID_STANDARD", "PACK_QTY", "PACK_QTY_STANDARD", "EFFTIVENESS_PACK_QTY") \
+			# .where((df.EFFTIVENESS_DOSAGE > 0) & (df.EFFTIVENESS_DOSAGE < 0.9)) \
 
-	# df = df.withColumn("DOSAGE", df.CPA_DOSAGE)
-	# df = df.drop("CPA_DOSAGE")
-	# df.repartition(1).write.mode("overwrite").parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DOSAGE_MAPPING/CPA/V0.0.2")
+	df = df.select("DOSAGE", "DOSAGE_STANDARD")
+	df = df.groupBy("DOSAGE").agg(pudf_dosage_mapping_agg(df.DOSAGE_STANDARD).alias("DOSAGE_STANDARD"))
+	df = df.withColumn("DOSAGE_STANDARD", array_distinct(df.DOSAGE_STANDARD))
 	
-	# df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/manual__2021-01-19T05_48_49.058508+00_00/cleaning_data_normalization/cleaning_origin")
-	df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/manual__2021-01-20T07_08_30.726901+00_00/cleaning_data_normalization/cleaning_origin")
-	df.show()
+	dfm = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DOSAGE_MAPPING/CHC/V0.0.2")
 	
+	df_result = dfm.join(df, on="DOSAGE", how="fullouter")
+	df_result = df_result.withColumn("MASTER_DOSAGE", coalesce(df_result.MASTER_DOSAGE, array()))
+	df_result = df_result.withColumn("DOSAGE_STANDARD", coalesce(df_result.DOSAGE_STANDARD, array()))
+	df_result = df_result.withColumn("RESULT", array_union(df_result.MASTER_DOSAGE, df_result.DOSAGE_STANDARD))
+	df_result = df_result.select("DOSAGE", "RESULT").withColumnRenamed("RESULT", "MASTER_DOSAGE")
+	# df_result.show(100)
 	
-	# model = PipelineModel.load("s3a://ph-max-auto/2020-08-11/data_matching/refactor/results/2021-01-17_16:06:26/Models")
-	# print(model[2].toDebugString)
+	df_result.repartition(1).write.mode("overwrite").parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DOSAGE_MAPPING/CHC/V0.0.3")
 	
-	# df = spark.read.parquet("s3a://ph-stream/common/public/prod/0.0.21")
-	# df.repartition(1).write.mode("overwrite").option("header", "true").csv("s3a://ph-max-auto/2020-08-11/data_matching/refactor/results/2021-01-17_22-57-34/Standards")

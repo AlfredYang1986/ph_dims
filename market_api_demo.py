@@ -15,7 +15,7 @@ from six.moves.urllib.parse import urlencode, urlunparse  # noqa
 
 app_id = "1641099262856206"
 app_secret = "31c870abbe108f05fe70828977ed23393b945e77"
-auth_code = "66e6c087f2eed3dd55872801918bd0fe7e3374fb"
+auth_code = "f3f41f11ff48a9fabf42718ce56a362563653b09"
 advertiser_name = "普菲特海南"
 
 def get_access_token():
