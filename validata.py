@@ -10,7 +10,7 @@ import pandas as pd
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 from pyspark.sql.functions import col
-from pyspark.sql.functions import lit
+from pyspark.sql.functions import lit, isnull, when
 from pyspark.sql.functions import sum, first
 from pyspark.sql.functions import array, array_distinct, array_union
 from pyspark.sql.functions import coalesce
@@ -81,43 +81,27 @@ def pudf_dosage_mapping_agg(sch):
 if __name__ == '__main__':
 	spark = prepare()
 	
-	# df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/manual__2021-02-06T13_53_23.413024+00_00/cleaning_data_model_predictions/negative_result")
-	# # df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/manual__2021-02-06T13_53_23.413024+00_00/cleaning_data_model_predictions/positive_result")
+	df = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/runid_alfred_runner_test/cleaning_data_model_predictions/positive_result")
+	# print(df.select("ID").distinct().count())
+	# df = df.where((df.label == 1) & (df.prediction == 1))
+	# print(df.select("ID").distinct().count())
+	df = df.select("ID").distinct().withColumn("TMP", lit(1))
 	
-	# df = df \
-			# .where((df.label == 1) & (df.prediction == 0) & (df.EFFTIVENESS_MOLE_NAME < 0.8)) \
-			# .distinct()
-	# 		# .where((df.EFFTIVENESS_PACK_QTY == 0)) \
-	# 		# .select("PACK_ID_STANDARD", "PACK_QTY", "PACK_QTY_STANDARD", "EFFTIVENESS_PACK_QTY") \
-	# 		# .where((df.EFFTIVENESS_DOSAGE > 0) & (df.EFFTIVENESS_DOSAGE < 0.9)) \
-
-	# df = df.select("DOSAGE", "DOSAGE_STANDARD")
-	# df = df.groupBy("DOSAGE").agg(pudf_dosage_mapping_agg(df.DOSAGE_STANDARD).alias("DOSAGE_STANDARD"))
-	# df = df.withColumn("DOSAGE_STANDARD", array_distinct(df.DOSAGE_STANDARD))
+	dfn = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/runid_alfred_runner_test/cleaning_data_model_predictions/negative_result")
+	# dfn = dfn.join(df, on="ID", how="leftouter")
+	# dfn = dfn.where(isnull(dfn.TMP))
+	dfn = dfn.where((dfn.label == 1) & (dfn.prediction == 1))
+	dfn.select("ID", "label", "prediction", "similarity", "RANK").show(100, truncate=False)
+	# print(dfn.select("ID").distinct().count())
 	
-	# dfm = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DOSAGE_MAPPING/CHC/V0.0.2")
-	
-	# df_result = dfm.join(df, on="DOSAGE", how="fullouter")
-	# df_result = df_result.withColumn("MASTER_DOSAGE", coalesce(df_result.MASTER_DOSAGE, array()))
-	# df_result = df_result.withColumn("DOSAGE_STANDARD", coalesce(df_result.DOSAGE_STANDARD, array()))
-	# df_result = df_result.withColumn("RESULT", array_union(df_result.MASTER_DOSAGE, df_result.DOSAGE_STANDARD))
-	# df_result = df_result.select("DOSAGE", "RESULT").withColumnRenamed("RESULT", "MASTER_DOSAGE")
-	
-	# df_result.repartition(1).write.mode("overwrite").parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DOSAGE_MAPPING/CHC/V0.0.3")
-
-	# df = df.select("MOLE_NAME", "MOLE_NAME_STANDARD")
-	# df = df.withColumnRenamed("MOLE_NAME", "MOLE_NAME_LOST")
-
-	# dfh = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DF_CONF/0.1")
-	# df_result = df.union(dfh).distinct()
-	# df_result = df_result.groupBy("MOLE_NAME_LOST").agg(first(df_result.MOLE_NAME_STANDARD).alias("MOLE_NAME_STANDARD"))
-	# df_result.repartition(1).write.mode("overwrite").parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/DF_CONF/0.2")
-	
-	# dfc = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/WORD_DIC/0.0.12")
-	# dfc.show()
-	# dfc.repartition(1).write.mode("overwrite").option("header", "true").csv("s3a://ph-max-auto/2020-08-11/BPBatchDAG/refactor/alfred/tmp/RESULT")
-	# dfc = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/WORD_DIC/0.0.12")
-	
-	df = spark.read.csv("s3a://ph-max-auto/2020-08-11/BPBatchDAG/refactor/alfred/tmp/Book1.csv", header="true")
-	df.show()
-	df.repartition(1).write.mode("overwrite").parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/data/WORD_DIC/0.0.13")
+	dfp = spark.read.parquet("s3a://ph-max-auto/2020-08-11/data_matching/refactor/runs/runid_alfred_runner_test/cleaning_data_model_predictions/prediction_result")
+	# dfp = dfp.where(dfp.ID == "ddd02521-2c08-4d85-8fb0-2dbf04f39017") \
+	# dfp = dfp.where(dfp.ID == "766138d6-0087-428c-a7d2-976fa4f4a5eb") \
+				# .select("ID", "label", "prediction", "similarity", "RANK", "MOLE_NAME", "MOLE_NAME_STANDARD", "EFFTIVENESS_MOLE_NAME") \
+				# .select("ID", "label", "prediction", "similarity", "RANK", "EFFTIVENESS_DOSAGE", "EFFTIVENESS_MANUFACTURER", "EFFTIVENESS_MOLE_NAME", "EFFTIVENESS_PACK_QTY", "EFFTIVENESS_PRODUCT_NAME", "EFFTIVENESS_SPEC") \
+				# .select("ID", "label", "prediction", "similarity", "MOLE_NAME", "MOLE_NAME_STANDARD", "EFFTIVENESS_SPEC", "SPEC", "SPEC_STANDARD") \
+				# .select("ID", "label", "prediction", "similarity", "MOLE_NAME", "EFFTIVENESS_MANUFACTURER", "MANUFACTURER_NAME", "MANUFACTURER_NAME_STANDARD") \
+				# .select("ID", "label", "prediction", "similarity", "MOLE_NAME", "MOLE_NAME_STANDARD", "PRODUCT_NAME", "PRODUCT_NAME_STANDARD", "SPEC", "SPEC_STANDARD", "MANUFACTURER_NAME", "MANUFACTURER_NAME_STANDARD", "DOSAGE", "DOSAGE_STANDARD") \
+	# dfp = dfp.where(dfp.ID == "5daed4d5-c650-433d-9d8d-b505f7dcdd01") \
+	dfp = dfp.where(dfp.ID == "58e21663-7b03-4de1-9310-a251fe606f14") \
+				.show(100, truncate=False)
